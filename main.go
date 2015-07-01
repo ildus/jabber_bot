@@ -61,7 +61,7 @@ type Command struct {
 	Jid      string
 	Password string
 	Host     string
-	Port     int16
+	Port     uint16
 }
 
 /* Load configuration from specified file and connect to database */
@@ -158,7 +158,7 @@ func parseCommand(text string) (*Command, error) {
 			Jid:      jid,
 			Password: pass,
 			Host:     host,
-			Port:     int16(port),
+			Port:     uint16(port),
 		}
 		return command, nil
 	} else if cmd == "/check" || cmd == "/ch" {
@@ -204,7 +204,7 @@ func onUpdate(update *telegrambot.Update) {
 		if err != nil {
 			SendMessage(message.From.Id, err.Error())
 		}
-	} else if command.CMD_DISCONNECT {
+	} else if command.Cmd == CMD_DISCONNECT {
 		Disconnect(message.From.Id)
 	}
 }
