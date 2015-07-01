@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"testing"
+	"time"
 )
 
 var (
@@ -24,6 +25,8 @@ func TestConnection(t *testing.T) {
 	client.Listen()
 
 	msg := <-client.Channel
+	client.SendMessage(msg.From, "i'm out")
+	time.Sleep(2 * time.Second)
 	client.Disconnect()
 	fmt.Println(msg)
 	Shutdown()

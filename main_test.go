@@ -1,87 +1,39 @@
 package main
 
 import (
-	"log"
+	"github.com/stretchr/testify/assert"
 	"testing"
 )
 
-const (
-	sqlInit = `
-	create table accounts_test (
-		id serial primary key,
-		user_id int,
-		host varchar,
-		username varchar unique,
-		password varchar,
-		use_tls bool
-	);
-	create table rosters_test (
-		id serial primary key,
-		account_id int,
-		name varchar
-	)
-	`
-	sqlTearDown = `
-	drop table if exists accounts_test;
-	drop table if exists rosters_test;
-	`
-)
-
-func setUp() {
-	accountsTable = "accounts_test"
-	rostersTable = "rosters_test"
-
-	loadConfiguration()
-	_, err := db.Exec(sqlTearDown)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	_, err = db.Exec(sqlInit)
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
-func tearDown() {
-	_, err := db.Exec(sqlTearDown)
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
-func TestAddAccount(t *testing.T) {
+func TestCommandParse(t *testing.T) {
 	var err error
-	var host, username, password string
-	var use_tls bool
+	text := "/connect user@example.com pass host.com 50"
+	command, _ := parseCommand(text)
+	assert.Equal(t, command.Cmd, CMD_CONNECT)
+	assert.Equal(t, command.Jid, "user@example.com")
+	assert.Equal(t, command.Password, "pass")
+	assert.Equal(t, command.Port, int16(50))
 
-	setUp()
-	err = addAccount(1, "umarta.com", "ildus@umarta.com", "pass", true)
-	if err != nil {
-		t.Fatal("add account error")
-	}
-	err = addAccount(1, "umarta.com", "ildus@umarta.com", "pass", true)
-	if err == nil {
-		t.Fatal("Second add must fail")
-	}
-	err = db.QueryRow(`select host, username, password, 
-		use_tls from accounts_test where user_id=$1`, 1).Scan(&host,
-		&username, &password, &use_tls)
-	if err != nil {
-		t.Fatal("Fetch error:", err)
-	}
-	tearDown()
-}
+	text = "/disconnect"
+	command, _ = parseCommand(text)
+	assert.Equal(t, command.Cmd, CMD_DISCONNECT)
 
-func TestListen(t *testing.T) {
-	setUp()
-	err := addAccount(1, "umarta.com:5222", "test@umarta.com", "testtest", true)
-	if err != nil {
-		t.Fatal("Account adding error", err)
-	}
-	ch := make(chan string)
-	log.Println("Start listening")
-	ListenAs(1, ch)
-	//ch <- "ildus@umarta.com test test"
-	tearDown()
+	text = "/check"
+	command, _ = parseCommand(text)
+	assert.Equal(t, command.Cmd, CMD_CHECK)
+
+	text = "/conn asdf asdf"
+	command, err = parseCommand(text)
+	assert.Nil(t, command)
+	assert.NotNil(t, err)
+
+	text = "/connect user@example.com"
+	command, err = parseCommand(text)
+	assert.Nil(t, command)
+	assert.NotNil(t, err)
+
+	text = "/connect user@example.com pass"
+	command, err = parseCommand(text)
+	assert.NotNil(t, command)
+	assert.Nil(t, err)
 }

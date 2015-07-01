@@ -15,7 +15,6 @@ void init_xmpp_library(void);
 void shutdown_xmpp_library(void);
 xmpp_conn *open_xmpp_conn(char *jid, char *pass, char *host, short port); 
 
-int send_message(xmpp_conn_t * const conn, 
-				 xmpp_ctx_t *ctx, 
+int send_message(void *conn_i, void *ctx_i, 
 				 char *type, char *to, char *message);
 #endif

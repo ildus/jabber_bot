@@ -12,6 +12,8 @@ import (
 	"log"
 	"net/http"
 	"path"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -22,17 +24,25 @@ var (
 	accountsTable string = "accounts"
 	rostersTable  string = "rosters"
 
-	accounts map[int]*Account
+	accounts        map[int]*Account
+	currentUpdateId = 0
 )
 
 const (
 	MAX_ACCOUNTS = 500
 )
 
+const (
+	CMD_CONNECT    = iota
+	CMD_CHECK      = iota
+	CMD_DISCONNECT = iota
+)
+
 type Account struct {
-	Jid  string
-	Host string
-	Port uint16
+	UserId int
+	Jid    string
+	Host   string
+	Port   uint16
 
 	client *xmpp.Client
 }
@@ -44,6 +54,14 @@ type Configuration struct {
 	BaseDomain  string   `json:"base_domain"`
 	HookPath    string   `json:"hook_path"`
 	TestAccount []string `json:"test_account"`
+}
+
+type Command struct {
+	Cmd      int
+	Jid      string
+	Password string
+	Host     string
+	Port     int16
 }
 
 /* Load configuration from specified file and connect to database */
@@ -87,13 +105,19 @@ func Connect(user_id int, jid string, password string,
 		return errors.New("Connection error")
 	}
 
-	account := &Account{Jid: jid, Host: host, Port: port, client: client}
+	account := &Account{
+		Jid:    jid,
+		Host:   host,
+		Port:   port,
+		client: client,
+	}
 	accounts[user_id] = account
 	client.Listen()
 	go func() {
 		defer delete(accounts, user_id)
 		for msg := range client.Channel {
-			account.SendMessage(msg)
+			text := fmt.Sprintf("%s %s", msg.From, msg.Text)
+			SendMessage(user_id, text)
 		}
 	}()
 
@@ -106,14 +130,79 @@ func Disconnect(user_id int) {
 	}
 }
 
-func (a *Account) SendMessage(msg *xmpp.Message) {
+func SendMessage(user_id int, text string) {
+	bot.SendMessage(user_id, text)
+}
+
+func parseCommand(text string) (*Command, error) {
+	var err error
+	parts := strings.Split(strings.Trim(text, " "), " ")
+	cmd := parts[0]
+	if cmd == "/connect" {
+		if len(parts) < 3 {
+			return nil, errors.New("Need more args")
+		}
+		jid, pass := parts[1], parts[2]
+		host, port := "", 0
+		if len(parts) == 4 {
+			host = parts[3]
+		}
+		if len(parts) == 5 {
+			port, err = strconv.Atoi(parts[4])
+			if err != nil {
+				return nil, errors.New("Port format error")
+			}
+		}
+		command := &Command{
+			Cmd:      CMD_CONNECT,
+			Jid:      jid,
+			Password: pass,
+			Host:     host,
+			Port:     int16(port),
+		}
+		return command, nil
+	} else if cmd == "/check" || cmd == "/ch" {
+		return &Command{Cmd: CMD_CHECK}, nil
+	} else if cmd == "/disconnect" || cmd == "/d" {
+		return &Command{Cmd: CMD_DISCONNECT}, nil
+	}
+	return nil, errors.New("Unknown command")
+}
+
+func onUpdate(update *telegrambot.Update) {
+	if currentUpdateId > 0 && update.Id < currentUpdateId {
+		return
+	}
+
+	currentUpdateId = update.Id
+	message := &update.Msg
+
+	// there is no message
+	if message.From.Id == 0 {
+		return
+	}
+
+	// only private chat
+	if message.From.Id != message.Chat.Id {
+		return
+	}
+
+	// skip forwared messages
+	if message.ForwardDate > 0 {
+		return
+	}
+
+	command, err := parseCommand(message.Text)
+	if err != nil {
+		SendMessage(message.From.Id, err.Error())
+		return
+	}
+	log.Println(command)
 }
 
 func listen() {
-	if bot.Hook == nil {
-		log.Fatal("Hook is not installed")
-	}
 	routes := mux.NewRouter()
+	bot.OnUpdate = onUpdate
 	routes.HandleFunc(conf.HookPath, bot.Hook)
 	s := &http.Server{
 		Addr:           fmt.Sprintf(":%d", conf.Listen),

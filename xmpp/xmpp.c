@@ -7,12 +7,13 @@
 
 extern void go_message_callback(char *, char *, char *, char *);
 
-int send_message(xmpp_conn_t * const conn, 
-				 xmpp_ctx_t *ctx, 
+int send_message(void *conn_i, void *ctx_i, 
 				 char *type, char *to, char *message)
 {
 	xmpp_stanza_t *reply, *body, *text;
 	char *msg_type = type;
+	xmpp_conn_t	*conn = (xmpp_conn_t *)conn_i;
+	xmpp_ctx_t *ctx = (xmpp_ctx_t *)ctx_i;
 
 	if (msg_type == NULL)
 		msg_type = "chat";

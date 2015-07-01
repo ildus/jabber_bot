@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 )
 
 const (
@@ -120,4 +121,12 @@ func (bot *Bot) GetMe() (bool, BotResult) {
 		return true, resp.result
 	}
 	return false, nil
+}
+
+func (bot *Bot) SendMessage(chat_id int, text string) bool {
+	values := url.Values{}
+	values.Set("chat_id", strconv.Itoa(chat_id))
+	values.Set("text", text)
+	resp := bot.Command("sendMessage", &values)
+	return (resp != nil && resp.ok)
 }

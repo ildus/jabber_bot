@@ -62,6 +62,14 @@ func (client *Client) Connect(pass string,
 	return errors.New("Connection error")
 }
 
+func (client *Client) SendMessage(jid string, message string) {
+	jid_i := C.CString(jid)
+	msg_type := C.CString("chat")
+	message_i := C.CString(message)
+	C.send_message(client.ConnInfo.conn, client.ConnInfo.ctx,
+		msg_type, jid_i, message_i)
+}
+
 func (client *Client) Disconnect() {
 	client.listen = false
 	delete(clients, client.Jid)
