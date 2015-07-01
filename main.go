@@ -74,6 +74,7 @@ func loadConfiguration() {
 	if err != nil {
 		log.Fatal("Configuration decoding error: ", err)
 	}
+	accounts = make(map[int]*Account)
 }
 
 func setupBot() {
