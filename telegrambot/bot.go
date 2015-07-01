@@ -95,12 +95,6 @@ func (bot *Bot) GetMe() (bool, BotResult) {
 }
 
 func (bot *Bot) SetWebhook(hookUrl string) bool {
-	values := &url.Values{}
-	values.Add("url", hookUrl)
-	resp := bot.Command("setWebhook", values)
-	if resp != nil && resp.ok {
-		bot.Hook = BotHandler
-		return true
-	}
-	return false
+	bot.Hook = BotHandler
+	return true
 }
