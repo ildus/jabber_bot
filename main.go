@@ -170,6 +170,12 @@ func parseCommand(text string) (*Command, error) {
 }
 
 func onUpdate(update *telegrambot.Update) {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Println("Update handling error: ", err)
+		}
+	}()
+
 	if currentUpdateId > 0 && update.Id < currentUpdateId {
 		return
 	}
