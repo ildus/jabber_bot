@@ -48,12 +48,10 @@ type Account struct {
 }
 
 type Configuration struct {
-	Listen      int      `json:"listen"`
-	Database    string   `json:"database"`
-	Token       string   `json:"token"`
-	BaseDomain  string   `json:"base_domain"`
-	HookPath    string   `json:"hook_path"`
-	TestAccount []string `json:"test_account"`
+	Listen     int    `json:"listen"`
+	Token      string `json:"token"`
+	BaseDomain string `json:"base_domain"`
+	HookPath   string `json:"hook_path"`
 }
 
 type Command struct {
@@ -74,7 +72,8 @@ func loadConfiguration() {
 	if err != nil {
 		log.Fatal("Configuration decoding error: ", err)
 	}
-	accounts = make(map[int]*Account)
+
+	xmpp.Init()
 }
 
 func setupBot() {
@@ -90,6 +89,10 @@ func setupBot() {
 
 func Connect(user_id int, jid string, password string,
 	host string, port uint16) error {
+	if accounts == nil {
+		accounts = make(map[int]*Account)
+	}
+
 	/* adding to accounts table */
 	if _, ok := accounts[user_id]; ok {
 		return errors.New("Account already connected")

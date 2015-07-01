@@ -12,7 +12,7 @@ func TestCommandParse(t *testing.T) {
 	assert.Equal(t, command.Cmd, CMD_CONNECT)
 	assert.Equal(t, command.Jid, "user@example.com")
 	assert.Equal(t, command.Password, "pass")
-	assert.Equal(t, command.Port, int16(50))
+	assert.Equal(t, command.Port, uint16(50))
 
 	text = "/disconnect"
 	command, _ = parseCommand(text)
