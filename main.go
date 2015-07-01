@@ -197,7 +197,16 @@ func onUpdate(update *telegrambot.Update) {
 		SendMessage(message.From.Id, err.Error())
 		return
 	}
-	log.Println(command)
+
+	if command.Cmd == CMD_CONNECT {
+		err = Connect(message.From.Id, command.Jid, command.Password,
+			command.Host, command.Port)
+		if err != nil {
+			SendMessage(message.From.Id, err.Error())
+		}
+	} else if command.CMD_DISCONNECT {
+		Disconnect(message.From.Id)
+	}
 }
 
 func listen() {
