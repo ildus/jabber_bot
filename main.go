@@ -66,8 +66,7 @@ func setupBot() {
 	}
 	log.Printf("Bot username is: %s", info["username"].(string))
 	hookPath := path.Join("https://", conf.BaseDomain, conf.HookPath)
-	log.Println("Adding hook to: ", hookPath)
-	bot.SetWebhook(hookPath)
+	log.Println("Hook expected on: ", hookPath)
 }
 
 func Connect(user_id int, jid string, password string,

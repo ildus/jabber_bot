@@ -13,9 +13,34 @@ const (
 	BASE_URL = "https://api.telegram.org/bot"
 )
 
+type Sender struct {
+	Id int `json:"id"`
+}
+
+type User struct {
+	Sender
+	FirstName string `json:"first_name"`
+	Username  string `json:"username"`
+}
+
+type Message struct {
+	Date        int      `json:"date"`
+	Text        string   `json:"text"`
+	MessageId   int      `json:"message_id"`
+	From        User     `json:"from"`
+	Chat        Sender   `json:"chat"`
+	Reply       *Message `json:"reply_to_message"`
+	ForwardDate int      `json:"forward_date"`
+}
+
+type Update struct {
+	Id  int     `json:"update_id"`
+	Msg Message `json:"message"`
+}
+
 type Bot struct {
-	Token string
-	Hook  func(w http.ResponseWriter, r *http.Request)
+	Token    string
+	OnUpdate func(update *Update)
 }
 
 type BotResult map[string]interface{}
@@ -25,8 +50,8 @@ type ServerResponse struct {
 	result      BotResult
 }
 
-func BotHandler(w http.ResponseWriter, r *http.Request) {
-	var update map[string]interface{}
+func (bot *Bot) Hook(w http.ResponseWriter, r *http.Request) {
+	var update Update
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Println("Webhook body read error")
@@ -39,6 +64,9 @@ func BotHandler(w http.ResponseWriter, r *http.Request) {
 		goto end
 	}
 
+	if bot.OnUpdate != nil {
+		bot.OnUpdate(&update)
+	}
 	log.Println("We got update %s", update)
 
 end:
@@ -92,9 +120,4 @@ func (bot *Bot) GetMe() (bool, BotResult) {
 		return true, resp.result
 	}
 	return false, nil
-}
-
-func (bot *Bot) SetWebhook(hookUrl string) bool {
-	bot.Hook = BotHandler
-	return true
 }
