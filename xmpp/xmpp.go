@@ -5,8 +5,8 @@ package xmpp
 #include "xmpp.h"
 */
 import "C"
-import "fmt"
 import "time"
+import "errors"
 
 var clients map[string]*Client = nil
 
@@ -19,7 +19,7 @@ type Message struct {
 type Client struct {
 	Jid      string
 	ConnInfo *C.xmpp_conn
-	channel  chan *Message
+	Channel  chan *Message
 	listen   bool
 }
 
@@ -28,23 +28,23 @@ func go_message_callback(jid *C.char, msg_type *C.char, from *C.char,
 	message *C.char) {
 
 	var jid_i = C.GoString(jid)
-	var msg_type_i = C.GoString(msg_type)
-	var from_i = C.GoString(from)
-	var message_i = C.GoString(message)
 
 	if client, ok := clients[jid_i]; ok {
+		var msg_type_i = C.GoString(msg_type)
+		var from_i = C.GoString(from)
+		var message_i = C.GoString(message)
+
 		msg := &Message{
 			MessageType: msg_type_i,
 			From:        from_i,
 			Text:        message_i,
 		}
-		client.channel <- msg
+		client.Channel <- msg
 	}
-	fmt.Println(jid_i, msg_type_i, from_i, message_i)
 }
 
 func (client *Client) Connect(pass string,
-	host string, port C.short) {
+	host string, port uint16) error {
 
 	jid_i := C.CString(client.Jid)
 	pass_i := C.CString(pass)
@@ -53,8 +53,13 @@ func (client *Client) Connect(pass string,
 	if len(host) > 0 {
 		host_i = C.CString(host)
 	}
-	client.ConnInfo = C.open_xmpp_conn(jid_i, pass_i, host_i, port)
-	clients[client.Jid] = client
+	client.ConnInfo = C.open_xmpp_conn(jid_i, pass_i, host_i,
+		C.short(port))
+	if client.ConnInfo != nil {
+		clients[client.Jid] = client
+		return nil
+	}
+	return errors.New("Connection error")
 }
 
 func (client *Client) Disconnect() {
@@ -63,7 +68,7 @@ func (client *Client) Disconnect() {
 }
 
 func (client *Client) Listen() {
-	client.channel = make(chan *Message)
+	client.Channel = make(chan *Message)
 	go func() {
 		client.listen = true
 		for client.listen {
@@ -71,7 +76,7 @@ func (client *Client) Listen() {
 			time.Sleep(50 * time.Millisecond)
 		}
 		C.close_xmpp_conn(client.ConnInfo)
-		close(client.channel)
+		close(client.Channel)
 	}()
 }
 

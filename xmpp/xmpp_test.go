@@ -23,7 +23,7 @@ func TestConnection(t *testing.T) {
 	client.Connect(*pass, "", 0)
 	client.Listen()
 
-	msg := <-client.channel
+	msg := <-client.Channel
 	client.Disconnect()
 	fmt.Println(msg)
 	Shutdown()

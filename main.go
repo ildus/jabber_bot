@@ -2,48 +2,39 @@ package main
 
 import (
 	"./telegrambot"
-	"crypto/tls"
-	"database/sql"
+	"./xmpp"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"github.com/gorilla/mux"
-	_ "github.com/lib/pq"
-	xmpp "github.com/mattn/go-xmpp"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"path"
-	"strings"
 	"time"
 )
 
 var (
 	config        = flag.String("config", "settings.json", "configuration file")
 	conf          Configuration
-	db            *sql.DB
 	bot           *telegrambot.Bot
 	accountsTable string = "accounts"
 	rostersTable  string = "rosters"
+
+	accounts map[int]*Account
 )
 
 const (
-	MAX_ACCOUNTS    = 500
-	SQL_GET_ACCOUNT = `select host, username, password, use_tls from %s
-						where user_id = $1`
-	SQL_CHECK_ACCOUNT = `select exists(select 1 
-									   from %s 
-									   where username = $1 limit 1);`
-	SQL_ADD_ACCOUNT = `insert into %s (user_id, host, username, 
-										password, use_tls) 
-					   values ($1, $2, $3, $4, $5);`
+	MAX_ACCOUNTS = 500
 )
 
 type Account struct {
-	Host     string
-	Username string
-	Password string
+	Jid  string
+	Host string
+	Port uint16
+
+	client *xmpp.Client
 }
 
 type Configuration struct {
@@ -65,10 +56,6 @@ func loadConfiguration() {
 	if err != nil {
 		log.Fatal("Configuration decoding error: ", err)
 	}
-	db, err = sql.Open("postgres", conf.Database)
-	if err != nil {
-		log.Fatal(err)
-	}
 }
 
 func setupBot() {
@@ -78,92 +65,49 @@ func setupBot() {
 		log.Fatal("Bot setup error")
 	}
 	log.Printf("Bot username is: %s", info["username"].(string))
-	bot.SetWebhook(path.Join("https://", conf.BaseDomain, conf.HookPath))
+	hookPath := path.Join("https://", conf.BaseDomain, conf.HookPath)
+	log.Println("Adding hook to: ", hookPath)
+	bot.SetWebhook(hookPath)
 }
 
-func addAccount(user_id int, host string,
-	username string, password string, use_tls bool) error {
+func Connect(user_id int, jid string, password string,
+	host string, port uint16) error {
 	/* adding to accounts table */
-	sql_add := fmt.Sprintf(SQL_ADD_ACCOUNT, accountsTable)
-	_, err := db.Exec(sql_add, user_id, host, username, password, use_tls)
-	if err != nil {
-		log.Println("Account adding error: %s", err)
-		return errors.New("Account adding error")
+	if _, ok := accounts[user_id]; ok {
+		return errors.New("Account already connected")
 	}
+
+	if len(accounts) >= MAX_ACCOUNTS {
+		return errors.New("Accounts limit exceeded")
+	}
+
+	client := &xmpp.Client{Jid: jid}
+	err := client.Connect(password, host, port)
+	if err != nil {
+		log.Println("Connection error: ", err)
+		return errors.New("Connection error")
+	}
+
+	account := &Account{Jid: jid, Host: host, Port: port, client: client}
+	accounts[user_id] = account
+	client.Listen()
+	go func() {
+		defer delete(accounts, user_id)
+		for msg := range client.Channel {
+			account.SendMessage(msg)
+		}
+	}()
+
 	return nil
 }
 
-func ListenAs(user_id int, channel chan string) {
-	var (
-		host, username, password string
-		use_tls                  bool
-		talk                     *xmpp.Client
-		err                      error
-	)
-
-	defer close(channel)
-	sql_acc := fmt.Sprintf(SQL_GET_ACCOUNT, accountsTable)
-	err = db.QueryRow(sql_acc, user_id).Scan(
-		&host, &username, &password, &use_tls)
-	if err != nil {
-		log.Printf("Apparently user %s does not exists: %s", user_id, err)
-		return
+func Disconnect(user_id int) {
+	if account, ok := accounts[user_id]; ok {
+		account.client.Disconnect()
 	}
+}
 
-	if use_tls {
-		xmpp.DefaultConfig = tls.Config{
-			ServerName:         strings.Split(host, ":")[0],
-			InsecureSkipVerify: false,
-		}
-	}
-
-	options := xmpp.Options{
-		Host:          host,
-		User:          username,
-		Password:      password,
-		NoTLS:         !use_tls,
-		Debug:         true,
-		Session:       false,
-		Status:        "xa",
-		StatusMessage: "i'm just a very very smart robot",
-	}
-	log.Println("Connecting")
-	talk, err = options.NewClient()
-	log.Println("ok")
-	if err != nil {
-		log.Println("Cannot connect to server: ", err)
-		return
-	}
-
-	go func() {
-		log.Println("Connected")
-		for {
-			chat, err := talk.Recv()
-			if err != nil {
-				log.Println("Talk recieving error: ", err)
-				channel <- "EOF"
-				break
-			}
-			switch v := chat.(type) {
-			case xmpp.Chat:
-				fmt.Println(v.Remote, v.Text)
-			case xmpp.Presence:
-				fmt.Println(v.From, v.Show)
-			}
-		}
-	}()
-	for {
-		message := <-channel
-		if message == "EOF" {
-			break
-		}
-
-		message = strings.TrimRight(message, "\n")
-		tokens := strings.SplitN(message, " ", 2)
-		if len(tokens) == 2 {
-			talk.Send(xmpp.Chat{Remote: tokens[0], Type: "chat", Text: tokens[1]})
-		}
-	}
+func (a *Account) SendMessage(msg *xmpp.Message) {
 }
 
 func listen() {

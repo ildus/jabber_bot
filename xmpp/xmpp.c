@@ -111,6 +111,7 @@ void shutdown_xmpp_library()
 
 xmpp_conn *open_xmpp_conn(char *jid, char *pass, char *host, short port) 
 {
+	int err;
 	xmpp_ctx_t *ctx;
 	xmpp_log_t *log;
 	xmpp_conn_t *conn;
@@ -130,10 +131,13 @@ xmpp_conn *open_xmpp_conn(char *jid, char *pass, char *host, short port)
 	xmpp_conn_set_pass(conn, pass);
 
 	/* initiate connection */
-    xmpp_connect_client(conn, host, port, conn_handler, ctx);
+    err = xmpp_connect_client(conn, host, port, conn_handler, ctx);
 	free(jid);
 	free(pass);
 	if (host != NULL) free(host);
+
+	if (err != 0) 
+		return NULL;
 
 	result = (xmpp_conn *) malloc(sizeof(xmpp_conn));
 	result->conn = (void *)conn;
