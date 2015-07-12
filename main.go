@@ -17,6 +17,8 @@ import (
 	"time"
 )
 
+type UserAccounts map[string]*Account
+
 var (
 	config        = flag.String("config", "settings.json", "configuration file")
 	conf          Configuration
@@ -24,7 +26,7 @@ var (
 	accountsTable string = "accounts"
 	rostersTable  string = "rosters"
 
-	accounts        map[int]*Account
+	accounts        map[int]UserAccounts
 	currentUpdateId = 0
 )
 
@@ -33,9 +35,11 @@ const (
 )
 
 const (
-	CMD_CONNECT    = iota
-	CMD_CHECK      = iota
-	CMD_DISCONNECT = iota
+	CMD_CONNECT     = iota
+	CMD_CHECK       = iota
+	CMD_DISCONNECT  = iota
+	CMD_BOT_MESSAGE = iota
+	CMD_MESSAGE     = iota
 )
 
 type Account struct {
@@ -44,14 +48,16 @@ type Account struct {
 	Host   string
 	Port   uint16
 
-	client *xmpp.Client
+	messageJids map[int]string
+	client      *xmpp.Client
 }
 
 type Configuration struct {
-	Listen     int    `json:"listen"`
-	Token      string `json:"token"`
-	BaseDomain string `json:"base_domain"`
-	HookPath   string `json:"hook_path"`
+	Listen      int    `json:"listen"`
+	Token       string `json:"token"`
+	BaseDomain  string `json:"base_domain"`
+	HookPath    string `json:"hook_path"`
+	AdminUserId int    `json:"admin_user_id"`
 }
 
 type Command struct {
@@ -60,6 +66,9 @@ type Command struct {
 	Password string
 	Host     string
 	Port     uint16
+
+	UserId  int
+	Message string
 }
 
 /* Load configuration from specified file and connect to database */
@@ -90,11 +99,15 @@ func setupBot() {
 func Connect(user_id int, jid string, password string,
 	host string, port uint16) error {
 	if accounts == nil {
-		accounts = make(map[int]*Account)
+		accounts = make(map[int]UserAccounts)
 	}
 
 	/* adding to accounts table */
-	if _, ok := accounts[user_id]; ok {
+	if _, ok := accounts[user_id]; !ok {
+		accounts[user_id] = make(UserAccounts)
+	}
+
+	if _, ok := accounts[user_id][jid]; ok {
 		return errors.New("Account already connected")
 	}
 
@@ -109,19 +122,26 @@ func Connect(user_id int, jid string, password string,
 		return errors.New("Connection error")
 	}
 
+	user_accounts := accounts[user_id]
 	account := &Account{
 		Jid:    jid,
 		Host:   host,
 		Port:   port,
 		client: client,
 	}
-	accounts[user_id] = account
+	user_accounts[jid] = account
 	client.Listen()
 	go func() {
-		defer delete(accounts, user_id)
+		defer func() {
+			if err := recover(); err != nil {
+				log.Println("Messages listening error: ", err)
+			}
+		}()
+		defer delete(user_accounts, jid)
 		for msg := range client.Channel {
-			text := fmt.Sprintf("%s %s", msg.From, msg.Text)
-			SendMessage(user_id, text)
+			msg_jid := strings.Split(msg.From, "/")[0]
+			text := fmt.Sprintf("%s %s", msg_jid, msg.Text)
+			message := SendMessage(user_id, text)
 		}
 	}()
 
@@ -129,16 +149,29 @@ func Connect(user_id int, jid string, password string,
 }
 
 func Disconnect(user_id int) {
-	if account, ok := accounts[user_id]; ok {
-		account.client.Disconnect()
+	if user_accounts, ok := accounts[user_id]; ok {
+		for jid, account := range user_accounts {
+			log.Println("%s disconnected", jid)
+			account.client.Disconnect()
+		}
 	}
 }
 
 func SendMessage(user_id int, text string) {
-	bot.SendMessage(user_id, text)
+	result := bot.SendMessage(user_id, text)
 }
 
 func parseCommand(text string) (*Command, error) {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Println("Command parse error", text)
+		}
+	}()
+
+	if len(text) > 5000 {
+		return nil, errors.New("Too long command")
+	}
+
 	var err error
 	parts := strings.Split(strings.Trim(text, " "), " ")
 	cmd := parts[0]
@@ -147,6 +180,9 @@ func parseCommand(text string) (*Command, error) {
 			return nil, errors.New("Need more args")
 		}
 		jid, pass := parts[1], parts[2]
+		if !EmailIsValid(jid) {
+			return nil, errors.New("Enter valid jid")
+		}
 		host, port := "", 0
 		if len(parts) == 4 {
 			host = parts[3]
@@ -169,6 +205,16 @@ func parseCommand(text string) (*Command, error) {
 		return &Command{Cmd: CMD_CHECK}, nil
 	} else if cmd == "/disconnect" || cmd == "/d" {
 		return &Command{Cmd: CMD_DISCONNECT}, nil
+	} else if cmd == "/bot_message" && len(conf.AdminUserId) > 0 {
+		msg := strings.Join("", parts[1:])
+		return &Command{Cmd: CMD_BOT_MESSAGE, Message: msg}, nil
+	} else if cmd == "/message" {
+		receiver := parts[1]
+		if !EmailIsValid(receiver) {
+			return errors.New("Enter valid recipient")
+		}
+		msg := strings.Join("", parts[2:])
+		return &Command{Cmd: CMD_MESSAGE, Message: msg, Jid: receiver}
 	}
 	return nil, errors.New("Unknown command")
 }
@@ -216,6 +262,8 @@ func onUpdate(update *telegrambot.Update) {
 		}
 	} else if command.Cmd == CMD_DISCONNECT {
 		Disconnect(message.From.Id)
+	} else if command.Cmd == CMD_MESSAGE {
+
 	}
 }
 

@@ -24,14 +24,18 @@ type User struct {
 	Username  string `json:"username"`
 }
 
+type MessageReply struct {
+	MessageId int `json:"message_id"`
+}
+
 type Message struct {
-	Date        int      `json:"date"`
-	Text        string   `json:"text"`
-	MessageId   int      `json:"message_id"`
-	From        User     `json:"from"`
-	Chat        Sender   `json:"chat"`
-	Reply       *Message `json:"reply_to_message"`
-	ForwardDate int      `json:"forward_date"`
+	Date        int          `json:"date"`
+	Text        string       `json:"text"`
+	MessageId   int          `json:"message_id"`
+	From        User         `json:"from"`
+	Chat        Sender       `json:"chat"`
+	Reply       MessageReply `json:"reply_to_message"`
+	ForwardDate int          `json:"forward_date"`
 }
 
 type Update struct {
@@ -128,5 +132,5 @@ func (bot *Bot) SendMessage(chat_id int, text string) bool {
 	values.Set("chat_id", strconv.Itoa(chat_id))
 	values.Set("text", text)
 	resp := bot.Command("sendMessage", &values)
-	return (resp != nil && resp.ok)
+	return resp.result
 }
