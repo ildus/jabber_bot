@@ -131,6 +131,8 @@ func Connect(user_id int, jid string, password string,
 	}
 	user_accounts[jid] = account
 	client.Listen()
+
+	// start listening messages from jabber
 	go func() {
 		defer func() {
 			if err := recover(); err != nil {
@@ -138,10 +140,16 @@ func Connect(user_id int, jid string, password string,
 			}
 		}()
 		defer delete(user_accounts, jid)
+
+		messageJids := make(map[int]string)
+		user_accounts[jid].messageJids = messageJids
 		for msg := range client.Channel {
 			msg_jid := strings.Split(msg.From, "/")[0]
 			text := fmt.Sprintf("%s %s", msg_jid, msg.Text)
-			message := SendMessage(user_id, text)
+			message_id := SendMessage(user_id, text)
+			if message_id > 0 {
+				messageJids[message_id] = msg_jid
+			}
 		}
 	}()
 
@@ -157,8 +165,8 @@ func Disconnect(user_id int) {
 	}
 }
 
-func SendMessage(user_id int, text string) {
-	result := bot.SendMessage(user_id, text)
+func SendMessage(user_id int, text string) int {
+	return bot.SendMessage(user_id, text)
 }
 
 func parseCommand(text string) (*Command, error) {
@@ -205,16 +213,27 @@ func parseCommand(text string) (*Command, error) {
 		return &Command{Cmd: CMD_CHECK}, nil
 	} else if cmd == "/disconnect" || cmd == "/d" {
 		return &Command{Cmd: CMD_DISCONNECT}, nil
-	} else if cmd == "/bot_message" && len(conf.AdminUserId) > 0 {
-		msg := strings.Join("", parts[1:])
-		return &Command{Cmd: CMD_BOT_MESSAGE, Message: msg}, nil
+	} else if cmd == "/bot_message" && conf.AdminUserId > 0 {
+		user_id, err := strconv.Atoi(parts[1])
+		if err == nil {
+			msg := strings.Join(parts[2:], " ")
+			return &Command{
+				Cmd:     CMD_BOT_MESSAGE,
+				Message: msg,
+				UserId:  user_id,
+			}, nil
+		}
 	} else if cmd == "/message" {
 		receiver := parts[1]
 		if !EmailIsValid(receiver) {
-			return errors.New("Enter valid recipient")
+			return nil, errors.New("Enter valid recipient")
 		}
-		msg := strings.Join("", parts[2:])
-		return &Command{Cmd: CMD_MESSAGE, Message: msg, Jid: receiver}
+		msg := strings.Join(parts[2:], "")
+		return &Command{
+			Cmd:     CMD_MESSAGE,
+			Message: msg,
+			Jid:     receiver,
+		}, nil
 	}
 	return nil, errors.New("Unknown command")
 }
@@ -232,19 +251,37 @@ func onUpdate(update *telegrambot.Update) {
 
 	currentUpdateId = update.Id
 	message := &update.Msg
+	user_id := message.From.Id
 
 	// there is no message
-	if message.From.Id == 0 {
+	if user_id == 0 {
 		return
 	}
 
 	// only private chat
-	if message.From.Id != message.Chat.Id {
+	if user_id != message.Chat.Id {
 		return
 	}
 
 	// skip forwared messages
 	if message.ForwardDate > 0 {
+		return
+	}
+
+	reply_to_id := message.ReplyTo.MessageId
+	if reply_to_id > 0 {
+		// is reply
+		user_accounts, ok := accounts[user_id]
+		if !ok {
+			SendMessage(user_id, "You are not connected")
+		}
+		for _, account := range user_accounts {
+			if jid, ok := account.messageJids[reply_to_id]; ok {
+				account.client.SendMessage(jid, message.Text)
+				break
+			}
+		}
+
 		return
 	}
 
@@ -254,16 +291,23 @@ func onUpdate(update *telegrambot.Update) {
 		return
 	}
 
-	if command.Cmd == CMD_CONNECT {
-		err = Connect(message.From.Id, command.Jid, command.Password,
-			command.Host, command.Port)
-		if err != nil {
-			SendMessage(message.From.Id, err.Error())
+	switch command.Cmd {
+	case CMD_CONNECT:
+		{
+			err = Connect(message.From.Id, command.Jid, command.Password,
+				command.Host, command.Port)
+			if err != nil {
+				SendMessage(message.From.Id, err.Error())
+			}
 		}
-	} else if command.Cmd == CMD_DISCONNECT {
+	case CMD_DISCONNECT:
 		Disconnect(message.From.Id)
-	} else if command.Cmd == CMD_MESSAGE {
-
+	case CMD_BOT_MESSAGE:
+		{
+			if conf.AdminUserId == user_id {
+				SendMessage(command.UserId, command.Message)
+			}
+		}
 	}
 }
 

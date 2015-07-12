@@ -70,7 +70,7 @@ void conn_handler(xmpp_conn_t * const conn, const xmpp_conn_event_t status,
 	if (status == XMPP_CONN_CONNECT)
 	{
 		xmpp_stanza_t *pres;
-		printf("DEBUG: connected\n");
+		printf("DEBUG: User connected\n");
 		xmpp_handler_add(conn, message_handler, NULL, "message", NULL, ctx);
 		
 		/* Send initial <presence/> so that we appear online to contacts */
@@ -118,7 +118,7 @@ xmpp_conn *open_xmpp_conn(char *jid, char *pass, char *host, short port)
 	xmpp_conn_t *conn;
 	xmpp_conn	*result;
 
-	log = xmpp_get_default_logger(XMPP_LEVEL_DEBUG);
+	log = xmpp_get_default_logger(XMPP_LEVEL_ERROR);
 	assert(log);
 
 	ctx = xmpp_ctx_new(NULL, log);
@@ -143,6 +143,5 @@ xmpp_conn *open_xmpp_conn(char *jid, char *pass, char *host, short port)
 	result = (xmpp_conn *) malloc(sizeof(xmpp_conn));
 	result->conn = (void *)conn;
 	result->ctx = (void *)ctx;
-	printf("%p, %p", conn, ctx);
 	return result;
 }
