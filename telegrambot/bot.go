@@ -56,27 +56,30 @@ type ServerResponse struct {
 }
 
 func (bot *Bot) Hook(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Println("Something is wrong in hook", err)
+		}
+
+		//telegram server must not know about our problems
+		fmt.Fprintf(w, "OK\n")
+	}()
 	var update Update
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Println("Webhook body read error")
-		goto end
+		return
 	}
 
 	err = json.Unmarshal(body, &update)
 	if err != nil {
 		log.Println("Webhook json parse error")
-		goto end
+		return
 	}
 
 	if bot.OnUpdate != nil {
 		bot.OnUpdate(&update)
 	}
-	log.Println("We got update %s", update)
-
-end:
-	//telegram server must not know about our problems
-	fmt.Fprintf(w, "OK\n")
 }
 
 func (bot *Bot) Command(cmd string,

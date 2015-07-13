@@ -169,12 +169,14 @@ func SendMessage(user_id int, text string) int {
 	return bot.SendMessage(user_id, text)
 }
 
-func parseCommand(text string) (*Command, error) {
+func parseCommand(message *telegrambot.Message) (*Command, error) {
 	defer func() {
 		if err := recover(); err != nil {
-			log.Println("Command parse error", text)
+			log.Println("Command parse error", message.Text)
 		}
 	}()
+
+	text := message.Text
 
 	if len(text) > 5000 {
 		return nil, errors.New("Too long command")
@@ -235,6 +237,15 @@ func parseCommand(text string) (*Command, error) {
 			Jid:     receiver,
 		}, nil
 	}
+
+	if conf.AdminUserId > 0 {
+		text := fmt.Sprintf("%d %s %s %s",
+			message.From.Id,
+			message.From.FirstName,
+			message.From.Username,
+			message.Text)
+		SendMessage(conf.AdminUserId, text)
+	}
 	return nil, errors.New("Unknown command")
 }
 
@@ -285,7 +296,7 @@ func onUpdate(update *telegrambot.Update) {
 		return
 	}
 
-	command, err := parseCommand(message.Text)
+	command, err := parseCommand(message)
 	if err != nil {
 		SendMessage(message.From.Id, err.Error())
 		return
