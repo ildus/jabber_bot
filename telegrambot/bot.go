@@ -132,5 +132,8 @@ func (bot *Bot) SendMessage(chat_id int, text string) int {
 	values.Set("chat_id", strconv.Itoa(chat_id))
 	values.Set("text", text)
 	resp := bot.Command("sendMessage", &values)
-	return int(resp.result["message_id"].(float64))
+	if msg_id, ok := resp.result["message_id"]; ok {
+		return int(msg_id.(float64))
+	}
+	return 0
 }
