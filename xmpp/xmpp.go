@@ -8,6 +8,10 @@ import "C"
 import "time"
 import "errors"
 
+/* includes created connections
+	key - jid
+	client - Client instance
+*/
 var clients map[string]*Client = nil
 
 type Message struct {
@@ -22,6 +26,18 @@ type Client struct {
 	Channel  chan *Message
 	listen   bool
 }
+
+/* when we get some message from connection,
+	this callback is called
+
+   jid - who got message
+   from - sender jid
+   message - text of message
+
+   function just get associated channel
+   for this jid (user connection)
+   and sends filled Message to this channel
+*/
 
 //export go_message_callback
 func go_message_callback(jid *C.char, msg_type *C.char, from *C.char,
@@ -43,6 +59,7 @@ func go_message_callback(jid *C.char, msg_type *C.char, from *C.char,
 	}
 }
 
+/* Opens jabber connection for client */
 func (client *Client) Connect(pass string,
 	host string, port uint16) error {
 
@@ -62,6 +79,7 @@ func (client *Client) Connect(pass string,
 	return errors.New("Connection error")
 }
 
+/* Sends message to somebody */
 func (client *Client) SendMessage(jid string, message string) {
 	jid_i := C.CString(jid)
 	msg_type := C.CString("chat")
@@ -70,11 +88,19 @@ func (client *Client) SendMessage(jid string, message string) {
 		msg_type, jid_i, message_i)
 }
 
+/* Breaks getting events from jabber server
+	in client goroutine and deletes
+	this client from clients map
+*/
 func (client *Client) Disconnect() {
 	client.listen = false
 	delete(clients, client.Jid)
 }
 
+/* Gets events from jabber connection,
+	if some event is happening and it is message, then it
+	goes to callback defined above
+*/
 func (client *Client) Listen() {
 	client.Channel = make(chan *Message)
 	go func() {

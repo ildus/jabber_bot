@@ -42,6 +42,17 @@ const (
 	CMD_MESSAGE     = iota
 )
 
+/* Account represents connection on this level,
+	UserId - id of telegram user
+	Jid, Host, Port - connection params
+
+  For security reasons we do not keep password here
+    messageJids - used for messages reply, when we get some message we keep
+	its id and sender, and when user wants to reply, we can determine receiver
+	of reply 
+
+  client - xmpp connection
+*/
 type Account struct {
 	UserId int
 	Jid    string
@@ -52,6 +63,7 @@ type Account struct {
 	client      *xmpp.Client
 }
 
+/* Configuration, filled from settings file */
 type Configuration struct {
 	Listen      int    `json:"listen"`
 	Token       string `json:"token"`
@@ -60,6 +72,7 @@ type Configuration struct {
 	AdminUserId int    `json:"admin_user_id"`
 }
 
+/* Messages to bot parsed to this struct if they has some meaning */
 type Command struct {
 	Cmd      int
 	Jid      string
@@ -85,6 +98,7 @@ func loadConfiguration() {
 	xmpp.Init()
 }
 
+/* Creates bot, checks it and shows in console hook path */
 func setupBot() {
 	bot = &telegrambot.Bot{Token: conf.Token}
 	ok, info := bot.GetMe()
@@ -95,6 +109,14 @@ func setupBot() {
 	hookPath := path.Join("https://", conf.BaseDomain, conf.HookPath)
 	log.Println("Hook expected on: ", hookPath)
 }
+
+/* Creates xmpp connection
+   User can have more than one connection, it all is keeped in `accounts`
+   First key is user_id, second - jid
+
+   It creates client, start client listening, and start own goroutine 
+   that listens messages from client channel
+*/
 
 func Connect(user_id int, jid string, password string,
 	host string, port uint16) error {
