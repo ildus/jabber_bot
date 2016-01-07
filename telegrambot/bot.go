@@ -116,8 +116,9 @@ func (bot *Bot) Command(cmd string,
 			result["description"].(string))
 		serverResponse.description = result["description"].(string)
 	} else {
-		st := result["result"].(map[string]interface{})
-		serverResponse.result = BotResult(st)
+		if st, exists := result["result"].(map[string]interface{}); exists {
+			serverResponse.result = BotResult(st)
+		}
 	}
 	return serverResponse
 }
@@ -139,4 +140,14 @@ func (bot *Bot) SendMessage(chat_id int, text string) int {
 		return int(msg_id.(float64))
 	}
 	return 0
+}
+
+func (bot *Bot) SetWebhook(hookurl string) bool {
+	values := url.Values{}
+	values.Set("url", hookurl)
+	resp := bot.Command("setWebhook", &values)
+	if resp != nil && resp.ok {
+		return true
+	}
+	return false
 }
