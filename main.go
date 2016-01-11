@@ -106,8 +106,18 @@ func setupBot() {
 		log.Fatal("Bot setup error")
 	}
 	log.Printf("Bot username is: %s", info["username"].(string))
-	hookPath := path.Join("https://", conf.BaseDomain, conf.HookPath)
+	hookPath := "https://" + path.Join(conf.BaseDomain, conf.HookPath)
 	log.Println("Hook expected on: ", hookPath)
+
+	go func() {
+		time.Sleep(2 * time.Second)
+		ok := bot.SetWebhook(hookPath)
+		if ok {
+			log.Println("Bot setWebhook: ok")
+		} else {
+			log.Fatal("Bot setWebhook: error")
+		}
+	}()
 }
 
 /* Creates xmpp connection
