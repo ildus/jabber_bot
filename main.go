@@ -108,6 +108,7 @@ func (c *Command) Again(msg string) {
 
 /* Load configuration from specified file and connect to database */
 func loadConfiguration() {
+	flag.Parse()
 	confData, err := ioutil.ReadFile(*config)
 	if err != nil {
 		log.Fatal(err)
