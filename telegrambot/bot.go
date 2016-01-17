@@ -142,6 +142,18 @@ func (bot *Bot) SendMessage(chat_id int, text string) int {
 	return 0
 }
 
+func (bot *Bot) SendReplyMessage(chat_id int, text string) int {
+	values := url.Values{}
+	values.Set("chat_id", strconv.Itoa(chat_id))
+	values.Set("text", text)
+	values.Set("reply_markup", `{"force_reply": true, "selective": false}`)
+	resp := bot.Command("sendMessage", &values)
+	if msg_id, ok := resp.result["message_id"]; ok {
+		return int(msg_id.(float64))
+	}
+	return 0
+}
+
 func (bot *Bot) SetWebhook(hookurl string) bool {
 	values := url.Values{}
 	values.Set("url", hookurl)

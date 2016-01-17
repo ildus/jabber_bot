@@ -18,30 +18,38 @@ import (
 	"time"
 )
 
-type UserAccounts map[string]*Account
-
 var (
-	config        = flag.String("config", "settings.json", "configuration file")
-	conf          Configuration
-	bot           *telegrambot.Bot
-	accountsTable string = "accounts"
-	rostersTable  string = "rosters"
+	config = flag.String("config", "settings.json", "configuration file")
+	conf   Configuration
+	bot    *telegrambot.Bot
 
-	accounts        map[int]UserAccounts
+	users           = make(map[int]*User)
 	currentUpdateId = 0
 )
 
 const (
 	MAX_ACCOUNTS = 500
+	GREETING     = `
+Hi, this is a jabber client for Telegram.
+Start the work with ` + "`" + "/connect" + "`" + `command.
+For now it can only get messages and supports replying to them.`
 )
 
 const (
+	CMD_UNDEFINED   = iota
 	CMD_CONNECT     = iota
 	CMD_CHECK       = iota
 	CMD_DISCONNECT  = iota
 	CMD_BOT_MESSAGE = iota
 	CMD_MESSAGE     = iota
+	CMD_START       = iota
 )
+
+/* Contains user details */
+type User struct {
+	accounts map[string]*Account
+	command  *Command
+}
 
 /* Account represents connection on this level,
 	UserId - id of telegram user
@@ -75,14 +83,27 @@ type Configuration struct {
 
 /* Messages to bot parsed to this struct if they has some meaning */
 type Command struct {
-	Cmd      int
-	Jid      string
-	Password string
-	Host     string
-	Port     uint16
+	Cmd  int
+	Jid  string
+	Host string
+	Port uint16
 
+	From    int
 	UserId  int
 	Message string
+
+	/* Used in multi-step commands */
+	Step  int
+	MsgId int
+}
+
+func (c *Command) Next(msg string) {
+	c.MsgId = bot.SendReplyMessage(c.From, msg)
+	c.Step += 1
+}
+
+func (c *Command) Again(msg string) {
+	c.MsgId = bot.SendReplyMessage(c.From, msg)
 }
 
 /* Load configuration from specified file and connect to database */
@@ -135,20 +156,13 @@ func setupBot() {
 
 func Connect(user_id int, jid string, password string,
 	host string, port uint16) error {
-	if accounts == nil {
-		accounts = make(map[int]UserAccounts)
-	}
 
-	/* adding to accounts table */
-	if _, ok := accounts[user_id]; !ok {
-		accounts[user_id] = make(UserAccounts)
-	}
-
-	if _, ok := accounts[user_id][jid]; ok {
+	user_accounts := users[user_id].accounts
+	if _, ok := user_accounts[jid]; ok {
 		return errors.New("Account already connected")
 	}
 
-	if len(accounts) >= MAX_ACCOUNTS {
+	if len(user_accounts) >= MAX_ACCOUNTS {
 		return errors.New("Accounts limit exceeded")
 	}
 
@@ -159,7 +173,6 @@ func Connect(user_id int, jid string, password string,
 		return errors.New("Connection error")
 	}
 
-	user_accounts := accounts[user_id]
 	account := &Account{
 		Jid:    jid,
 		Host:   host,
@@ -194,8 +207,8 @@ func Connect(user_id int, jid string, password string,
 }
 
 func Disconnect(user_id int) {
-	if user_accounts, ok := accounts[user_id]; ok {
-		for jid, account := range user_accounts {
+	if user, ok := users[user_id]; ok {
+		for jid, account := range user.accounts {
 			log.Println("%s disconnected", jid)
 			account.client.Disconnect()
 		}
@@ -214,79 +227,67 @@ func parseCommand(message *telegrambot.Message) (*Command, error) {
 	}()
 
 	text := message.Text
+	command := &Command{
+		From: message.From.Id,
+		Step: 0,
+		Cmd:  CMD_UNDEFINED,
+	}
+
+	if command.From == 0 {
+		log.Println("Something went wrong (command.From == 0)")
+		return nil, errors.New("Internal error")
+	}
 
 	if len(text) > 5000 {
 		return nil, errors.New("Too long command")
 	}
 
-	var err error
 	parts := strings.Split(strings.Trim(text, " "), " ")
 	cmd := parts[0]
 	if cmd == "/connect" {
-		if len(parts) < 3 {
-			return nil, errors.New("Need more args")
-		}
-		jid, pass := parts[1], parts[2]
-		if !EmailIsValid(jid) {
-			return nil, errors.New("Enter valid jid")
-		}
-		host, port := "", 0
-		if len(parts) == 4 {
-			host = parts[3]
-		}
-		if len(parts) == 5 {
-			port, err = strconv.Atoi(parts[4])
-			if err != nil {
-				return nil, errors.New("Port format error")
-			}
-		}
-		command := &Command{
-			Cmd:      CMD_CONNECT,
-			Jid:      jid,
-			Password: pass,
-			Host:     host,
-			Port:     uint16(port),
-		}
-		return command, nil
-	} else if cmd == "/check" || cmd == "/ch" {
-		return &Command{Cmd: CMD_CHECK}, nil
-	} else if cmd == "/disconnect" || cmd == "/d" {
-		return &Command{Cmd: CMD_DISCONNECT}, nil
-	} else if cmd == "/bot_message" && conf.AdminUserId > 0 {
+		command.Cmd = CMD_CONNECT
+	} else if cmd == "/check" && conf.AdminUserId == command.From {
+		command.Cmd = CMD_CHECK
+	} else if cmd == "/disconnect" {
+		command.Cmd = CMD_DISCONNECT
+	} else if cmd == "/start" {
+		command.Cmd = CMD_START
+	} else if cmd == "/bot_message" && conf.AdminUserId == command.From {
 		user_id, err := strconv.Atoi(parts[1])
 		if err == nil {
-			msg := strings.Join(parts[2:], " ")
-			return &Command{
-				Cmd:     CMD_BOT_MESSAGE,
-				Message: msg,
-				UserId:  user_id,
-			}, nil
+			command.Cmd = CMD_BOT_MESSAGE
+			command.Message = strings.Join(parts[2:], " ")
+			command.UserId = user_id
 		}
 	} else if cmd == "/message" {
-		receiver := parts[1]
-		if !EmailIsValid(receiver) {
-			return nil, errors.New("Enter valid recipient")
-		}
-		msg := strings.Join(parts[2:], "")
-		return &Command{
-			Cmd:     CMD_MESSAGE,
-			Message: msg,
-			Jid:     receiver,
-		}, nil
+		// todo: add support message to anybody
+		command.Cmd = CMD_MESSAGE
 	}
 
-	if conf.AdminUserId > 0 {
-		text := fmt.Sprintf("%d %s %s %s",
-			message.From.Id,
-			message.From.FirstName,
-			message.From.Username,
-			message.Text)
-		SendMessage(conf.AdminUserId, text)
+	/*
+	 * If command can't be parsed, try to send it to admin.
+	 * It can be just an error
+	 */
+	if command.Cmd == CMD_UNDEFINED {
+		if conf.AdminUserId > 0 {
+			text := fmt.Sprintf("%d %s %s %s",
+				message.From.Id,
+				message.From.FirstName,
+				message.From.Username,
+				message.Text)
+			SendMessage(conf.AdminUserId, text)
+		}
+		return nil, errors.New("Unknown command")
 	}
-	return nil, errors.New("Unknown command")
+
+	return command, nil
 }
 
 func onUpdate(update *telegrambot.Update) {
+	var command *Command
+	var user *User
+	var err error
+
 	defer func() {
 		if err := recover(); err != nil {
 			log.Println("Update handling error: ", err)
@@ -306,7 +307,7 @@ func onUpdate(update *telegrambot.Update) {
 		return
 	}
 
-	// only private chat
+	// only private chats allowed
 	if user_id != message.Chat.Id {
 		return
 	}
@@ -316,46 +317,91 @@ func onUpdate(update *telegrambot.Update) {
 		return
 	}
 
+	/* adding to users map */
+	if _, ok := users[user_id]; !ok {
+		users[user_id] = &User{
+			command:  nil,
+			accounts: make(map[string]*Account),
+		}
+	}
+
+	command = nil
 	reply_to_id := message.ReplyTo.MessageId
+	user = users[user_id]
+
 	if reply_to_id > 0 {
 		// is reply
-		user_accounts, ok := accounts[user_id]
-		if !ok {
-			SendMessage(user_id, "You are not connected")
-		}
-		for _, account := range user_accounts {
-			if jid, ok := account.messageJids[reply_to_id]; ok {
-				account.client.SendMessage(jid, message.Text)
-				break
+		reply_failed := true
+
+		if user.command != nil && user.command.MsgId == reply_to_id {
+			command = user.command
+			reply_failed = false
+		} else {
+			user_accounts := user.accounts
+			for _, account := range user_accounts {
+				if jid, ok := account.messageJids[reply_to_id]; ok {
+					account.client.SendMessage(jid, message.Text)
+					return
+				}
 			}
 		}
 
-		return
+		if reply_failed {
+			SendMessage(user_id, "Error. Reply wasn't sent")
+			return
+		}
 	}
 
-	command, err := parseCommand(message)
-	if err != nil {
-		SendMessage(message.From.Id, err.Error())
-		return
+	if command == nil {
+		command, err = parseCommand(message)
+		if err != nil {
+			SendMessage(message.From.Id, err.Error())
+			return
+		}
 	}
 
 	switch command.Cmd {
 	case CMD_CONNECT:
 		{
-			err = Connect(message.From.Id, command.Jid, command.Password,
-				command.Host, command.Port)
-			if err != nil {
-				SendMessage(message.From.Id, err.Error())
+			switch command.Step {
+			case 0:
+				{
+					command.Next("Enter your jabber id:")
+					user.command = command
+				}
+			case 1:
+				{
+					if !EmailIsValid(message.Text) {
+						command.Again("Invalid jabber id. Try again")
+						break
+					}
+					command.Next("Enter your password:")
+					command.Jid = message.Text
+				}
+			case 2:
+				{
+					err = Connect(command.From, command.Jid, message.Text,
+						command.Host, command.Port)
+					if err != nil {
+						SendMessage(command.From, err.Error())
+					}
+				}
+			default:
+				log.Println("Something went wrong in connecting")
 			}
 		}
 	case CMD_DISCONNECT:
-		Disconnect(message.From.Id)
+		Disconnect(command.From)
 	case CMD_BOT_MESSAGE:
-		{
-			if conf.AdminUserId == user_id {
-				SendMessage(command.UserId, command.Message)
-			}
-		}
+		SendMessage(command.UserId, command.Message)
+	case CMD_START:
+		SendMessage(command.From, GREETING)
+	case CMD_CHECK:
+		text := `
+		I'm alive.
+		Users count: %d.
+		`
+		SendMessage(conf.AdminUserId, fmt.Sprintf(text, len(users)))
 	}
 }
 
