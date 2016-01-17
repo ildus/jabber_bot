@@ -96,7 +96,7 @@ func loadConfiguration() {
 		log.Fatal("Configuration decoding error: ", err)
 	}
 
-	validToken := regexp.MustCompile(`^\d+:\w+$`)
+	validToken := regexp.MustCompile(`^\d+:[\w\-]+$`)
 	if !validToken.MatchString(conf.Token) {
 		log.Fatal("Invalid token format")
 	}
