@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -49,7 +50,7 @@ const (
   For security reasons we do not keep password here
     messageJids - used for messages reply, when we get some message we keep
 	its id and sender, and when user wants to reply, we can determine receiver
-	of reply 
+	of reply
 
   client - xmpp connection
 */
@@ -95,6 +96,10 @@ func loadConfiguration() {
 		log.Fatal("Configuration decoding error: ", err)
 	}
 
+	validToken := regexp.MustCompile(`^\d+:\w+$`)
+	if !validToken.MatchString(conf.Token) {
+		log.Fatal("Invalid token format")
+	}
 	xmpp.Init()
 }
 
@@ -124,7 +129,7 @@ func setupBot() {
    User can have more than one connection, it all is keeped in `accounts`
    First key is user_id, second - jid
 
-   It creates client, start client listening, and start own goroutine 
+   It creates client, start client listening, and start own goroutine
    that listens messages from client channel
 */
 
