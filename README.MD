@@ -2,28 +2,29 @@ Jabber transport for Telegram
 -----------------------------
 
 This is telegram bot that implements jabber transport in telegram. Now it can
-connect, disconnect, receive messages, and support replying to messages
+connect, disconnect, receive messages, and support replying to messages.
 
-Building
+Build
 ----------
 
 Strophe library used for xmpp connection so it must be installed
 
 	# on mac
 	brew install libstrophe
-	# on linux, get sources, ./configure && make install
+	# on linux, get sources of strophe, ./configure && make install
+	# or install it with package manager
 	go get github.com/gorilla/mux
 	go build
 
 Setup
 -----
 
-Create settings.json in root. Format:
+Create `settings.json` file in the root folder. Format:
 
 	{
-		"listen": 9000, //port
-		"token": "asdf", //telegram auth token
-		"base_domain": "example.com", //your domain
+		"listen": 9000, // port
+		"token": "asdf", // telegram auth token
+		"base_domain": "example.com", // your domain
 		"hook_path": "/bot/hook", // url where will updates come
 		"admin_user_id": 234234 // if you want get messages (not commands) from users
 	}
@@ -34,5 +35,6 @@ to bot port.
 Commands
 --------
 
-* /connect jid pass <host> <port>
+* /start
+* /connect
 * /disconnect
