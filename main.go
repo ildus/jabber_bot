@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -28,7 +29,7 @@ var (
 )
 
 const (
-	MAX_ACCOUNTS = 500
+	MAX_ACCOUNTS = 2
 	GREETING     = `
 Hi, this is a jabber client for Telegram.
 Start the work with ` + "`" + "/connect" + "`" + `command.
@@ -43,6 +44,12 @@ const (
 	CMD_BOT_MESSAGE = iota
 	CMD_MESSAGE     = iota
 	CMD_START       = iota
+)
+
+const (
+	STATUS_CONNECTING   = iota
+	STATUS_CONNECTED    = iota
+	STATUS_DISCONNECTED = iota
 )
 
 /* Contains user details */
@@ -70,6 +77,7 @@ type Account struct {
 
 	messageJids map[int]string
 	client      *xmpp.Client
+	status      int
 }
 
 /* Configuration, filled from settings file */
@@ -79,6 +87,7 @@ type Configuration struct {
 	BaseDomain  string `json:"base_domain"`
 	HookPath    string `json:"hook_path"`
 	AdminUserId int    `json:"admin_user_id"`
+	Debug       bool   `json:"debug"`
 }
 
 /* Messages to bot parsed to this struct if they has some meaning */
@@ -158,29 +167,41 @@ func setupBot() {
 func Connect(user_id int, jid string, password string,
 	host string, port uint16) error {
 
+	var account *Account
+	var found bool
+
 	user_accounts := users[user_id].accounts
-	if _, ok := user_accounts[jid]; ok {
+	if account, found = user_accounts[jid]; !found {
+		if len(user_accounts) >= MAX_ACCOUNTS {
+			return errors.New("Accounts limit exceeded")
+		}
+
+		account = &Account{
+			Jid:    jid,
+			client: &xmpp.Client{Jid: jid},
+			status: STATUS_DISCONNECTED,
+		}
+		user_accounts[jid] = account
+	}
+
+	if account.status == STATUS_CONNECTED {
 		return errors.New("Account already connected")
+	} else if account.status == STATUS_CONNECTING {
+		return errors.New("Account is already trying to connect")
 	}
 
-	if len(user_accounts) >= MAX_ACCOUNTS {
-		return errors.New("Accounts limit exceeded")
-	}
+	account.Host = host
+	account.Port = port
+	account.status = STATUS_CONNECTING
+	account.messageJids = make(map[int]string)
 
-	client := &xmpp.Client{Jid: jid}
+	client := account.client
 	err := client.Connect(password, host, port)
 	if err != nil {
 		log.Println("Connection error: ", err)
 		return errors.New("Connection error")
 	}
 
-	account := &Account{
-		Jid:    jid,
-		Host:   host,
-		Port:   port,
-		client: client,
-	}
-	user_accounts[jid] = account
 	client.Listen()
 
 	// start listening messages from jabber
@@ -188,18 +209,41 @@ func Connect(user_id int, jid string, password string,
 		defer func() {
 			if err := recover(); err != nil {
 				log.Println("Messages listening error: ", err)
-			}
-		}()
-		defer delete(user_accounts, jid)
 
-		messageJids := make(map[int]string)
-		user_accounts[jid].messageJids = messageJids
-		for msg := range client.Channel {
-			msg_jid := strings.Split(msg.From, "/")[0]
-			text := fmt.Sprintf("%s %s", msg_jid, msg.Text)
-			message_id := SendMessage(user_id, text)
-			if message_id > 0 {
-				messageJids[message_id] = msg_jid
+				if conf.Debug {
+					debug.PrintStack()
+				}
+			}
+
+			account.status = STATUS_DISCONNECTED
+			SendMessage(user_id, fmt.Sprintf("%s disconnected (or connection failed)", jid))
+		}()
+
+		for event := range client.Channel {
+			switch event.EventType {
+			case xmpp.XMPP_CONN_CONNECT:
+				{
+					SendMessage(user_id, fmt.Sprintf("%s connected", jid))
+					account.status = STATUS_CONNECTED
+				}
+			case xmpp.XMPP_CONN_DISCONNECT:
+				{
+					SendMessage(user_id, fmt.Sprintf("%s disconnected", jid))
+				}
+			case xmpp.XMPP_CONN_FAIL:
+				{
+					SendMessage(user_id, fmt.Sprintf("%s connection fail", jid))
+				}
+			case xmpp.XMPP_MESSAGE:
+				{
+					msg := event.Msg
+					msg_jid := strings.Split(msg.From, "/")[0]
+					text := fmt.Sprintf("%s %s", msg_jid, msg.Text)
+					message_id := SendMessage(user_id, text)
+					if message_id > 0 {
+						account.messageJids[message_id] = msg_jid
+					}
+				}
 			}
 		}
 	}()
@@ -209,8 +253,7 @@ func Connect(user_id int, jid string, password string,
 
 func Disconnect(user_id int) {
 	if user, ok := users[user_id]; ok {
-		for jid, account := range user.accounts {
-			log.Println("%s disconnected", jid)
+		for _, account := range user.accounts {
 			account.client.Disconnect()
 		}
 	}
@@ -292,6 +335,10 @@ func onUpdate(update *telegrambot.Update) {
 	defer func() {
 		if err := recover(); err != nil {
 			log.Println("Update handling error: ", err)
+
+			if conf.Debug {
+				debug.PrintStack()
+			}
 		}
 	}()
 

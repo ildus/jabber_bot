@@ -5,14 +5,31 @@ package xmpp
 #include "xmpp.h"
 */
 import "C"
-import "time"
 import "errors"
+import "log"
+import "sync"
 
 /* includes created connections
-	key - jid
-	client - Client instance
+key - jid
+client - Client instance
 */
-var clients map[string]*Client = nil
+var (
+	clients map[int]*Client = nil
+	mutex   sync.Mutex
+	counter int = 0
+)
+
+const (
+	XMPP_CONN_CONNECT    = C.XMPP_CONN_CONNECT
+	XMPP_CONN_DISCONNECT = C.XMPP_CONN_DISCONNECT
+	XMPP_CONN_FAIL       = C.XMPP_CONN_FAIL
+	XMPP_MESSAGE         = XMPP_CONN_FAIL + 1
+)
+
+type Event struct {
+	EventType int
+	Msg       *Message
+}
 
 type Message struct {
 	MessageType string
@@ -21,31 +38,33 @@ type Message struct {
 }
 
 type Client struct {
+	Id       int
 	Jid      string
 	ConnInfo *C.xmpp_conn
-	Channel  chan *Message
+	Channel  chan *Event
 	listen   bool
 }
 
 /* when we get some message from connection,
 	this callback is called
 
-   jid - who got message
+   clientId - who got message
    from - sender jid
    message - text of message
 
    function just get associated channel
-   for this jid (user connection)
+   for this client_id (user connection)
    and sends filled Message to this channel
 */
 
 //export go_message_callback
-func go_message_callback(jid *C.char, msg_type *C.char, from *C.char,
+func go_message_callback(client_id C.int, msg_type *C.char, from *C.char,
 	message *C.char) {
 
-	var jid_i = C.GoString(jid)
+	clientId := int(client_id)
+	log.Println("xmpp.Callback ", clientId)
 
-	if client, ok := clients[jid_i]; ok {
+	if client, ok := clients[clientId]; ok {
 		var msg_type_i = C.GoString(msg_type)
 		var from_i = C.GoString(from)
 		var message_i = C.GoString(message)
@@ -55,7 +74,20 @@ func go_message_callback(jid *C.char, msg_type *C.char, from *C.char,
 			From:        from_i,
 			Text:        message_i,
 		}
-		client.Channel <- msg
+		client.Channel <- &Event{Msg: msg, EventType: XMPP_MESSAGE}
+	}
+}
+
+//export go_conn_callback
+func go_conn_callback(client_id C.int, event_type C.int) {
+	clientId := int(client_id)
+	log.Println("xmpp.ConnCallback ", clientId)
+
+	if client, ok := clients[clientId]; ok {
+		client.Channel <- &Event{EventType: int(event_type)}
+		if event_type != XMPP_CONN_CONNECT {
+			client.listen = false
+		}
 	}
 }
 
@@ -67,13 +99,22 @@ func (client *Client) Connect(pass string,
 	pass_i := C.CString(pass)
 	var host_i *C.char = nil
 
+	log.Println("xmpp.Connect: ", client.Jid)
+
 	if len(host) > 0 {
 		host_i = C.CString(host)
 	}
+
+	mutex.Lock()
+	counter += 1
+	mutex.Unlock()
+
 	client.ConnInfo = C.open_xmpp_conn(jid_i, pass_i, host_i,
-		C.short(port))
+		C.short(port), C.int(counter))
+
 	if client.ConnInfo != nil {
-		clients[client.Jid] = client
+		client.Id = counter
+		clients[counter] = client
 		return nil
 	}
 	return errors.New("Connection error")
@@ -88,35 +129,36 @@ func (client *Client) SendMessage(jid string, message string) {
 		msg_type, jid_i, message_i)
 }
 
-/* Breaks getting events from jabber server
-	in client goroutine and deletes
-	this client from clients map
-*/
+/*
+ * Breaks getting events from jabber server
+ * in client goroutine and deletes
+ * this client from clients map
+ */
 func (client *Client) Disconnect() {
-	client.listen = false
-	delete(clients, client.Jid)
+	C.disconnect_xmpp_conn(client.ConnInfo)
 }
 
-/* Gets events from jabber connection,
-	if some event is happening and it is message, then it
-	goes to callback defined above
-*/
+/*
+ * Gets events from jabber connection,
+ * if some event is happening and it is message, then it
+ * goes to callback defined above
+ */
 func (client *Client) Listen() {
-	client.Channel = make(chan *Message)
+	client.Channel = make(chan *Event)
 	go func() {
 		client.listen = true
 		for client.listen {
-			C.check_xmpp_events(client.ConnInfo.ctx)
-			time.Sleep(50 * time.Millisecond)
+			C.check_xmpp_events(client.ConnInfo.ctx, 100)
 		}
 		C.close_xmpp_conn(client.ConnInfo)
 		close(client.Channel)
+		delete(clients, client.Id)
 	}()
 }
 
 func Init() {
 	C.init_xmpp_library()
-	clients = make(map[string]*Client)
+	clients = make(map[int]*Client)
 }
 
 func Shutdown() {
