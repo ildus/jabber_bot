@@ -1,4 +1,4 @@
-Jabber transport for Telegram
+Jabber bot for Telegram
 -----------------------------
 
 This is telegram bot that implements jabber transport in telegram. Now it can
@@ -41,6 +41,7 @@ Commands
 TODO
 -----
 
+* External authorization (user credentials will not be in chat history)
 * Tools for sending messages to any buddy
 * Adding a buddy and authorization
 * OTR (Off-The-Record messaging)
