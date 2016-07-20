@@ -38,7 +38,8 @@ Commands
 * /connect
 * /disconnect
 
-TODO:
+TODO
+-----
 
 * Tools for sending messages to any buddy
 * Adding a buddy and authorization
