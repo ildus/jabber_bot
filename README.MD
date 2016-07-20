@@ -35,6 +35,12 @@ to bot port.
 Commands
 --------
 
-* /start
 * /connect
 * /disconnect
+
+TODO:
+
+* Tools for sending messages to any buddy
+* Adding a buddy and authorization
+* OTR (Off-The-Record messaging)
+* Roster
