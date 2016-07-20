@@ -47,13 +47,11 @@ int message_handler(xmpp_conn_t * const conn,
 
 	if (!xmpp_stanza_get_child_by_name(stanza, "body"))
 	{
-		printf("no body");
 		return 1;
 	}
 	if (xmpp_stanza_get_attribute(stanza, "type") != NULL
 			&& !strcmp(xmpp_stanza_get_attribute(stanza, "type"), "error"))
 	{
-		printf("some error");
 		return 1;
 	}
 
