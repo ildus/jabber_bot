@@ -37,11 +37,18 @@ type Message struct {
 	Text        string
 }
 
+type Buddy struct {
+	Name         string
+	Jid          string
+	Subscription string
+}
+
 type Client struct {
 	Id       int
 	Jid      string
 	ConnInfo *C.xmpp_conn
 	Channel  chan *Event
+	Roster   []*Buddy
 	listen   bool
 }
 
@@ -78,6 +85,28 @@ func go_message_callback(client_id C.int, msg_type *C.char, from *C.char,
 	}
 }
 
+//export go_roster_callback
+func go_roster_callback(client_id C.int, roster *C.roster_item) {
+	clientId := int(client_id)
+
+	if client, ok := clients[clientId]; ok {
+		item := roster
+		result := make([]*Buddy, 0)
+		for item != nil {
+			buddy := &Buddy{
+				Jid:          C.GoString(item.jid),
+				Name:         C.GoString(item.name),
+				Subscription: C.GoString(item.subscription),
+			}
+			result = append(result, buddy)
+			item = (*C.roster_item)(item.next)
+		}
+		client.Roster = result
+	}
+
+	C.free_roster(roster)
+}
+
 //export go_conn_callback
 func go_conn_callback(client_id C.int, event_type C.int) {
 	clientId := int(client_id)
@@ -85,7 +114,9 @@ func go_conn_callback(client_id C.int, event_type C.int) {
 
 	if client, ok := clients[clientId]; ok {
 		client.Channel <- &Event{EventType: int(event_type)}
-		if event_type != XMPP_CONN_CONNECT {
+		if event_type == XMPP_CONN_CONNECT {
+			C.get_roster(client.ConnInfo.conn, client.ConnInfo.userdata)
+		} else {
 			client.listen = false
 		}
 	}
@@ -125,8 +156,7 @@ func (client *Client) SendMessage(jid string, message string) {
 	jid_i := C.CString(jid)
 	msg_type := C.CString("chat")
 	message_i := C.CString(message)
-	C.send_message(client.ConnInfo.conn, client.ConnInfo.ctx,
-		msg_type, jid_i, message_i)
+	C.send_message(client.ConnInfo.conn, msg_type, jid_i, message_i)
 }
 
 /*

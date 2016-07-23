@@ -44,6 +44,7 @@ const (
 	CMD_BOT_MESSAGE = iota
 	CMD_MESSAGE     = iota
 	CMD_START       = iota
+	CMD_ROSTER      = iota
 )
 
 const (
@@ -306,6 +307,8 @@ func parseCommand(message *telegrambot.Message) (*Command, error) {
 	} else if cmd == "/message" {
 		// todo: add support message to anybody
 		command.Cmd = CMD_MESSAGE
+	} else if cmd == "/roster" {
+		command.Cmd = CMD_ROSTER
 	}
 
 	/*
@@ -450,6 +453,8 @@ func onUpdate(update *telegrambot.Update) {
 		Users count: %d.
 		`
 		SendMessage(conf.AdminUserId, fmt.Sprintf(text, len(users)))
+	case CMD_ROSTER:
+		// something
 	}
 }
 

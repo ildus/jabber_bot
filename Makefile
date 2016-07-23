@@ -1,6 +1,8 @@
 build:
 	go build
 
+run: build
+	./jabber_bot
 
 # i have set up nginx on my server, so i'm just redirect proxy to my local
 # development server for testing current code
